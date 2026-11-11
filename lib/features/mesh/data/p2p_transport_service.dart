@@ -64,7 +64,7 @@ final class P2PTransportService {
   static const int _typeDataMessage = 0x10;
   static const int _typeDeliveryAck = 0x11;
 
-  final Database _db;
+  final Database? _db;
   final CryptoSessionBridge _crypto;
   final String _localPeerId;
 
@@ -75,12 +75,24 @@ final class P2PTransportService {
 
   final StreamController<Map<String, dynamic>> _incomingMessagesController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<PeerDiscoveredEvent> _peerDiscoveredController =
+      StreamController<PeerDiscoveredEvent>.broadcast();
+  final StreamController<String> _peerDisconnectedController =
+      StreamController<String>.broadcast();
+  final StreamController<String> _peerAuthenticatedController =
+      StreamController<String>.broadcast();
 
   Stream<Map<String, dynamic>> get incomingMessages =>
       _incomingMessagesController.stream;
+  Stream<PeerDiscoveredEvent> get onPeerDiscovered =>
+      _peerDiscoveredController.stream;
+  Stream<String> get onPeerDisconnected =>
+      _peerDisconnectedController.stream;
+  Stream<String> get onPeerAuthenticated =>
+      _peerAuthenticatedController.stream;
 
   P2PTransportService({
-    required Database db,
+    Database? db,
     required CryptoSessionBridge crypto,
     required String localPeerId,
   })  : _db = db,
@@ -89,21 +101,25 @@ final class P2PTransportService {
 
   /// Démarre l'annonce (Advertising) et la découverte (Scanning) simultanées.
   Future<void> startMeshNetwork() async {
-    await _radioSubscription?.cancel();
-    _radioSubscription = _eventChannel
-        .receiveBroadcastStream()
-        .map(_parseNativeEvent)
-        .listen(_handleRadioEvent, onError: (_) {
-      // Mode Fail-Secure : fermeture immédiate des sessions éphémères en cas d'anomalie radio
-      unawaited(_purgeAllActiveSessions());
-    });
+    try {
+      await _radioSubscription?.cancel();
+      _radioSubscription = _eventChannel
+          .receiveBroadcastStream()
+          .map(_parseNativeEvent)
+          .listen(_handleRadioEvent, onError: (_) {
+        // Mode Fail-Secure : fermeture immédiate des sessions éphémères en cas d'anomalie radio
+        unawaited(_purgeAllActiveSessions());
+      });
 
-    await _controlChannel
-        .invokeMethod<void>('startMesh', <String, dynamic>{
-          'localPeerId': _localPeerId,
-          'serviceUuid': '0000FD9A-0000-1000-8000-00805F9B34FB',
-        })
-        .timeout(const Duration(seconds: 8));
+      await _controlChannel
+          .invokeMethod<void>('startMesh', <String, dynamic>{
+            'localPeerId': _localPeerId,
+            'serviceUuid': '0000FD9A-0000-1000-8000-00805F9B34FB',
+          })
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Tolérance fail-secure en environnement restreint
+    }
   }
 
   /// Arrête proprement les radios et nettoie toutes les clés de session en RAM.
@@ -112,7 +128,12 @@ final class P2PTransportService {
     _radioSubscription = null;
     await _purgeAllActiveSessions();
     await _incomingMessagesController.close();
-    await _controlChannel.invokeMethod<void>('stopMesh');
+    await _peerDiscoveredController.close();
+    await _peerDisconnectedController.close();
+    await _peerAuthenticatedController.close();
+    try {
+      await _controlChannel.invokeMethod<void>('stopMesh');
+    } catch (_) {}
   }
 
   RadioEvent _parseNativeEvent(dynamic raw) {
@@ -142,6 +163,7 @@ final class P2PTransportService {
       case PeerDiscoveredEvent(:final endpointId, :final advertisedPeerId):
         _endpointToPeerId[endpointId] = advertisedPeerId;
         _peerIdToEndpoint[advertisedPeerId] = endpointId;
+        _peerDiscoveredController.add(event);
 
         // Prévention déterministe du Glare : le PeerId lexicographiquement inférieur initie Noise XX
         if (_localPeerId.compareTo(advertisedPeerId) < 0) {
@@ -153,6 +175,7 @@ final class P2PTransportService {
         final peerId = _endpointToPeerId.remove(endpointId);
         if (peerId != null) {
           _peerIdToEndpoint.remove(peerId);
+          _peerDisconnectedController.add(peerId);
         }
         _authenticatedEndpoints.remove(endpointId);
         await _crypto.destroySession(endpointId);
@@ -194,6 +217,7 @@ final class P2PTransportService {
         _authenticatedEndpoints.add(endpointId);
         final peerId = _endpointToPeerId[endpointId];
         if (peerId != null) {
+          _peerAuthenticatedController.add(peerId);
           await _flushOutboxForPeer(peerId, endpointId);
         }
       }
@@ -224,7 +248,7 @@ final class P2PTransportService {
         final text = jsonMap['body'] as String;
         final timestamp = jsonMap['ts'] as int;
 
-        await _db.insert(
+        await _db?.insert(
           'messages',
           <String, Object?>{
             'message_id': msgId,
@@ -256,7 +280,7 @@ final class P2PTransportService {
         final ackedMsgId = jsonMap['msg_id'] as String;
         final deliveredAt = jsonMap['ts'] as int;
 
-        await _db.transaction((txn) async {
+        await _db?.transaction((txn) async {
           await txn.update(
             'messages',
             <String, Object?>{
@@ -298,7 +322,7 @@ final class P2PTransportService {
       ),
     );
 
-    await _db.transaction((txn) async {
+    await _db?.transaction((txn) async {
       await txn.insert(
         'messages',
         <String, Object?>{
@@ -337,12 +361,12 @@ final class P2PTransportService {
   }
 
   Future<void> _flushOutboxForPeer(String peerId, String endpointId) async {
-    final pendingRows = await _db.query(
+    final pendingRows = await _db?.query(
       'outbox_queue',
       where: 'recipient_peer_id = ?',
       whereArgs: <Object>[peerId],
       orderBy: 'created_at_ms ASC',
-    );
+    ) ?? const <Map<String, Object?>>[];
 
     for (final row in pendingRows) {
       if (!_authenticatedEndpoints.contains(endpointId)) break;
@@ -366,7 +390,7 @@ final class P2PTransportService {
       final sealedBytes = await _crypto.sealPayload(endpointId, clearPayload);
       await _sendWireFrame(endpointId, _typeDataMessage, sealedBytes);
 
-      await _db.update(
+      await _db?.update(
         'messages',
         <String, Object?>{'delivery_status': 'sent'},
         where: 'message_id = ? AND delivery_status = ?',

@@ -136,114 +136,213 @@ class _MeshRadarPageState extends State<MeshRadarPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (BuildContext sheetContext) {
-        return SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(MeshDesignTokens.spaceSection),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Row(
+        return StatefulBuilder(
+          builder: (BuildContext innerContext, StateSetter setSheetState) {
+            final remainingSec = widget.controller.secondsUntilNextQrRotation;
+            final minutes = remainingSec ~/ 60;
+            final seconds = (remainingSec % 60).toString().padLeft(2, '0');
+
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(MeshDesignTokens.spaceSection),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    const Expanded(
-                      child: Text(
-                        'Mon code de sécurité',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    Row(
+                      children: <Widget>[
+                        const Expanded(
+                          child: Text(
+                            'Mon code d\'invitation sécurisé',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: MeshDesignTokens.spaceCompact),
+                    Text(
+                      'Faites scanner ce code par l\'autre téléphone pour établir une liaison directe et sécurisée.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: Theme.of(sheetContext)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.75),
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(sheetContext).pop(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: MeshDesignTokens.spaceCompact),
-                Text(
-                  'Faites scanner ce code par l\'autre téléphone pour établir une liaison directe et sécurisée.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    height: 1.4,
-                    color: Theme.of(sheetContext)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.75),
-                  ),
-                ),
-                const SizedBox(height: MeshDesignTokens.spaceSection),
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(MeshDesignTokens.spaceGutter),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: MeshDesignTokens.radiusCard,
-                    ),
-                    child: Column(
-                      children: <Widget>[
-                        QrImageView(
-                          data: widget.controller.localQrPayload,
-                          version: QrVersions.auto,
-                          size: 190.0,
-                          backgroundColor: Colors.white,
+                    const SizedBox(height: MeshDesignTokens.spaceSection),
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(MeshDesignTokens.spaceGutter),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: MeshDesignTokens.radiusCard,
                         ),
-                        const SizedBox(height: MeshDesignTokens.spaceCompact),
-                        Text(
-                          widget.controller.localShortFingerprint,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.2,
-                            color: Colors.black87,
+                        child: Column(
+                          children: <Widget>[
+                            QrImageView(
+                              data: widget.controller.localQrPayload,
+                              version: QrVersions.auto,
+                              size: 190.0,
+                              backgroundColor: Colors.white,
+                            ),
+                            const SizedBox(height: MeshDesignTokens.spaceCompact),
+                            Text(
+                              widget.controller.localShortFingerprint,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.2,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: MeshDesignTokens.spaceSection),
+
+                    // Bannière de rotation 15 min anti-espionnage
+                    Container(
+                      padding: const EdgeInsets.all(MeshDesignTokens.spaceMedium),
+                      decoration: BoxDecoration(
+                        color: Theme.of(sheetContext)
+                            .colorScheme
+                            .surfaceContainerHighest
+                            .withValues(alpha: 0.5),
+                        borderRadius: MeshDesignTokens.radiusCard,
+                        border: Border.all(
+                          color: Theme.of(sheetContext)
+                              .colorScheme
+                              .outline
+                              .withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              const Icon(
+                                Icons.shield_outlined,
+                                size: 18,
+                                color: MeshDesignTokens.primaryElectricTeal,
+                              ),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'Jeton éphémère anti-espionnage (15 min)',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: MeshDesignTokens.primaryElectricTeal
+                                      .withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '$minutes:$seconds',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: MeshDesignTokens.primaryElectricTeal,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Ce QR code se renouvelle automatiquement toutes les 15 minutes pour empêcher les captures d\'écran malveillantes. Vos contacts déjà enregistrés restent connectés indéfiniment.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                              color: Theme.of(sheetContext)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.7),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                HapticFeedback.lightImpact();
+                                widget.controller.rotateQrCodeNow();
+                                setSheetState(() {});
+                              },
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text(
+                                'Renouveler le code maintenant',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: MeshDesignTokens.spaceSection),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: SizedBox(
+                            height: MeshDesignTokens.minTouchTarget,
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.of(sheetContext).pop();
+                                _openCameraScanner(context);
+                              },
+                              icon: const Icon(Icons.qr_code_scanner),
+                              label: const Text('Scanner l\'autre'),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: MeshDesignTokens.spaceMedium),
+                        Expanded(
+                          child: SizedBox(
+                            height: MeshDesignTokens.minTouchTarget,
+                            child: FilledButton.icon(
+                              onPressed: () {
+                                for (final peer in widget.controller.peers) {
+                                  widget.controller.markPeerQrVerified(peer.peerId);
+                                }
+                                Navigator.of(sheetContext).pop();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Contacts validés avec succès.'),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.check_circle_outline),
+                              label: const Text('Valider'),
+                            ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ),
-                const SizedBox(height: MeshDesignTokens.spaceSection),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: SizedBox(
-                        height: MeshDesignTokens.minTouchTarget,
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.of(sheetContext).pop();
-                            _openCameraScanner(context);
-                          },
-                          icon: const Icon(Icons.qr_code_scanner),
-                          label: const Text('Scanner l\'autre'),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: MeshDesignTokens.spaceMedium),
-                    Expanded(
-                      child: SizedBox(
-                        height: MeshDesignTokens.minTouchTarget,
-                        child: FilledButton.icon(
-                          onPressed: () {
-                            for (final peer in widget.controller.peers) {
-                              widget.controller.markPeerQrVerified(peer.peerId);
-                            }
-                            Navigator.of(sheetContext).pop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Contacts validés avec succès.'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.check_circle_outline),
-                          label: const Text('Valider'),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );

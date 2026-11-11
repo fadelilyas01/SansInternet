@@ -140,4 +140,38 @@ void main() {
     expect(lora.isConnected, isFalse);
     lora.dispose();
   });
+
+  test('Vérifie la rotation du QR code éphémère (15 min) et la persistance des contacts appairés', () async {
+    final alice = MeshController();
+    final bob = MeshController();
+
+    // 1. Génération du premier QR code d'Alice
+    final qrPayload1 = alice.localQrPayload;
+    expect(qrPayload1, contains('epoch='));
+    expect(qrPayload1, contains('tk='));
+    expect(alice.secondsUntilNextQrRotation, inInclusiveRange(1, 15 * 60));
+
+    // 2. Bob scanne le QR code d'Alice et s'appaire avec succès
+    final pairedPeer = bob.pairPeerFromQrData(qrPayload1);
+    expect(pairedPeer, isNotNull);
+    expect(pairedPeer?.peerId, equals(alice.localPeerId));
+    expect(pairedPeer?.verificationStatus, equals(PeerVerificationStatus.qrVerified));
+    expect(pairedPeer?.linkState, equals(PeerLinkState.authenticated));
+
+    // 3. Alice renouvelle son QR code (rotation manuelle ou écoulement des 15 minutes)
+    alice.rotateQrCodeNow();
+    final qrPayload2 = alice.localQrPayload;
+    expect(qrPayload2, isNot(equals(qrPayload1))); // Le QR code a bien changé
+
+    // 4. Bob a toujours Alice dans ses contacts, inchangée et authentifiée
+    final bobContactIndex = bob.peers.indexWhere((p) => p.peerId == alice.localPeerId);
+    expect(bobContactIndex, isNot(equals(-1)));
+    expect(bob.peers[bobContactIndex].verificationStatus, equals(PeerVerificationStatus.qrVerified));
+
+    // 5. Un tiers tente de scanner un QR code expiré de 3 époques (ex: 45 minutes) : Rejet strict anti-rejeu
+    final expiredQr =
+        'sansinternet://pair?id=malicious_node_999&name=Attaque&fp=DEAD-BEEF&epoch=${alice.currentQrEpoch - 3}&tk=12345678';
+    final resultExpired = bob.pairPeerFromQrData(expiredQr);
+    expect(resultExpired, isNull); // Rejeté car périmé !
+  });
 }

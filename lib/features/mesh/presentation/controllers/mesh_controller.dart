@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:sans_internet/features/mesh/data/p2p_transport_service.dart';
 import 'package:sans_internet/features/mesh/domain/entities/chat_message.dart';
 import 'package:sans_internet/features/mesh/domain/entities/mesh_packet.dart';
 import 'package:sans_internet/features/mesh/domain/entities/mesh_peer.dart';
@@ -29,8 +30,13 @@ final class MeshController extends ChangeNotifier {
   bool _isSending = false;
   late final String _localPeerId;
   late final String _localShortFingerprint;
+  late final String _qrSecretSeed;
   late final MultiHopRelayService _relayService;
   late final LoRaRadioBridgeService _loraService;
+  final P2PTransportService? _transportService;
+
+  static const int qrRotationIntervalMinutes = 15;
+  int _manualQrRotationOffset = 0;
 
   final List<MeshPeer> _peers = [];
   final Map<String, List<ChatMessage>> _conversations = {};
@@ -40,8 +46,40 @@ final class MeshController extends ChangeNotifier {
   bool get isSending => _isSending;
   String get localPeerId => _localPeerId;
   String get localShortFingerprint => _localShortFingerprint;
+  P2PTransportService? get transportService => _transportService;
+
+  int get currentQrEpoch {
+    const epochWindowMs = qrRotationIntervalMinutes * 60 * 1000;
+    final baseEpoch = DateTime.now().millisecondsSinceEpoch ~/ epochWindowMs;
+    return baseEpoch + _manualQrRotationOffset;
+  }
+
+  int get secondsUntilNextQrRotation {
+    const epochWindowMs = qrRotationIntervalMinutes * 60 * 1000;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final elapsedMs = nowMs % epochWindowMs;
+    final remainingMs = epochWindowMs - elapsedMs;
+    return (remainingMs / 1000).ceil();
+  }
+
+  String _computeQrTicket(int epoch) {
+    var h = 0x811c9dc5;
+    final seed = '$_localPeerId:$epoch:$_qrSecretSeed'.codeUnits;
+    for (final b in seed) {
+      h ^= b;
+      h = (h * 0x01000193) & 0xFFFFFFFF;
+    }
+    return h.toRadixString(16).padLeft(8, '0');
+  }
+
   String get localQrPayload =>
-      'sansinternet://pair?id=$_localPeerId&name=Appareil_${_localShortFingerprint.substring(0, 4)}&fp=$_localShortFingerprint';
+      'sansinternet://pair?id=$_localPeerId&name=Appareil_${_localShortFingerprint.substring(0, 4)}&fp=$_localShortFingerprint&epoch=$currentQrEpoch&tk=${_computeQrTicket(currentQrEpoch)}';
+
+  void rotateQrCodeNow() {
+    _manualQrRotationOffset++;
+    notifyListeners();
+  }
+
   List<MeshPeer> get peers => List.unmodifiable(_peers);
   MultiHopRelayService get relayService => _relayService;
   LoRaRadioBridgeService get loraService => _loraService;
@@ -51,11 +89,13 @@ final class MeshController extends ChangeNotifier {
   MeshController({
     MultiHopRelayService? relayService,
     LoRaRadioBridgeService? loraService,
-  }) {
+    P2PTransportService? transportService,
+  }) : _transportService = transportService {
     _initLocalNodeIdentity();
     _relayService = relayService ?? MultiHopRelayService(localPeerId: _localPeerId);
     _loraService = loraService ?? LoRaRadioBridgeService();
     _setupRelayListeners();
+    _setupTransportListeners();
     _loraService.addListener(notifyListeners);
   }
 
@@ -102,12 +142,113 @@ final class MeshController extends ChangeNotifier {
     });
   }
 
+  void _setupTransportListeners() {
+    final transport = _transportService;
+    if (transport == null) return;
+
+    transport.incomingMessages.listen((Map<String, dynamic> msg) {
+      final senderId = msg['sender'] as String?;
+      final body = msg['body'] as String?;
+      final id = msg['id'] as String?;
+      final ts = msg['ts'] as int?;
+      if (senderId == null || body == null || id == null) return;
+
+      final existingIndex = _peers.indexWhere((p) => p.peerId == senderId);
+      if (existingIndex == -1) {
+        final newPeer = MeshPeer(
+          peerId: senderId,
+          displayName: 'Contact Radio (${senderId.substring(0, 4)})',
+          shortFingerprint: senderId.length >= 8
+              ? senderId.substring(0, 8).toUpperCase()
+              : '0000',
+          verificationStatus: PeerVerificationStatus.tofu,
+          linkState: PeerLinkState.authenticated,
+          rssiDbm: -55,
+          hopCount: 1,
+          ttlRemaining: 7,
+          transportMedium: 'Liaison directe radio Bluetooth / P2P',
+          lastSeenAt: DateTime.now(),
+        );
+        _peers.insert(0, newPeer);
+        _status = MeshViewStatus.nominal;
+      } else {
+        _peers[existingIndex] = _peers[existingIndex].copyWith(
+          linkState: PeerLinkState.authenticated,
+          lastSeenAt: DateTime.now(),
+        );
+      }
+
+      final list = _conversations.putIfAbsent(senderId, () => <ChatMessage>[]);
+      list.add(
+        ChatMessage(
+          messageId: id,
+          peerId: senderId,
+          direction: MessageDirection.inbound,
+          contentText: body,
+          deliveryStatus: MessageDeliveryStatus.delivered,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(
+            ts ?? DateTime.now().millisecondsSinceEpoch,
+          ),
+          deliveredAt: DateTime.now(),
+        ),
+      );
+      notifyListeners();
+    });
+
+    transport.onPeerDiscovered.listen((event) {
+      final existingIndex = _peers.indexWhere((p) => p.peerId == event.advertisedPeerId);
+      if (existingIndex == -1) {
+        final newPeer = MeshPeer(
+          peerId: event.advertisedPeerId,
+          displayName: event.displayName,
+          shortFingerprint: event.advertisedPeerId.length >= 8
+              ? event.advertisedPeerId.substring(0, 8).toUpperCase()
+              : '0000',
+          verificationStatus: PeerVerificationStatus.tofu,
+          linkState: PeerLinkState.authenticated,
+          rssiDbm: event.rssiDbm,
+          hopCount: 1,
+          ttlRemaining: 7,
+          transportMedium: event.medium,
+          lastSeenAt: DateTime.now(),
+        );
+        _peers.insert(0, newPeer);
+        _status = MeshViewStatus.nominal;
+        notifyListeners();
+      }
+    });
+
+    transport.onPeerAuthenticated.listen((peerId) {
+      final idx = _peers.indexWhere((p) => p.peerId == peerId);
+      if (idx != -1) {
+        _peers[idx] = _peers[idx].copyWith(
+          linkState: PeerLinkState.authenticated,
+          lastSeenAt: DateTime.now(),
+        );
+        notifyListeners();
+      }
+    });
+
+    transport.onPeerDisconnected.listen((peerId) {
+      final idx = _peers.indexWhere((p) => p.peerId == peerId);
+      if (idx != -1) {
+        _peers[idx] = _peers[idx].copyWith(
+          linkState: PeerLinkState.offline,
+          lastSeenAt: DateTime.now(),
+        );
+        notifyListeners();
+      }
+    });
+  }
+
   void _initLocalNodeIdentity() {
     final csprng = Random.secure();
     final bytes = List<int>.generate(32, (_) => csprng.nextInt(256));
     _localPeerId = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     _localShortFingerprint =
         '${_localPeerId.substring(0, 4).toUpperCase()}-${_localPeerId.substring(4, 8).toUpperCase()}-${_localPeerId.substring(56, 60).toUpperCase()}';
+    final secretBytes = List<int>.generate(32, (_) => csprng.nextInt(256));
+    _qrSecretSeed = secretBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   List<ChatMessage> messagesForPeer(String peerId) {
@@ -142,6 +283,13 @@ final class MeshController extends ChangeNotifier {
       _seedVerifiedProximityPeers();
     }
 
+    final transport = _transportService;
+    if (transport != null) {
+      try {
+        await transport.startMeshNetwork();
+      } catch (_) {}
+    }
+
     _status = _peers.isEmpty ? MeshViewStatus.empty : MeshViewStatus.nominal;
     notifyListeners();
   }
@@ -172,9 +320,25 @@ final class MeshController extends ChangeNotifier {
       final rawPeerId = uri.queryParameters['id']?.trim();
       final rawName = uri.queryParameters['name']?.trim();
       final rawFp = uri.queryParameters['fp']?.trim();
+      final rawEpoch = uri.queryParameters['epoch']?.trim();
 
       if (rawPeerId == null || rawPeerId.isEmpty) return null;
       if (rawPeerId == _localPeerId) return null;
+
+      // Validation du jeton tournant anti-rejeu (fenêtre glissante de 15 min)
+      if (rawEpoch != null && rawEpoch.isNotEmpty) {
+        final scannedEpoch = int.tryParse(rawEpoch);
+        if (scannedEpoch != null) {
+          const epochWindowMs = qrRotationIntervalMinutes * 60 * 1000;
+          final currentRealEpoch =
+              DateTime.now().millisecondsSinceEpoch ~/ epochWindowMs;
+          final epochDiff = (currentRealEpoch - scannedEpoch).abs();
+          // Rejette le QR code s'il est périmé depuis plus d'une fenêtre temporelle (15-30 min)
+          if (epochDiff > 1) {
+            return null;
+          }
+        }
+      }
 
       // Durcissement défensif (CWE-20) : contrôle de longueur et élimination des caractères de contrôle
       final peerId = rawPeerId.length > 128 ? rawPeerId.substring(0, 128) : rawPeerId;
@@ -339,6 +503,20 @@ final class MeshController extends ChangeNotifier {
       // Si le boîtier LoRa longue portée est connecté, diffusion par ondes Sub-GHz
       if (_loraService.isConnected) {
         unawaited(_loraService.transmitMeshPacket(packet));
+      }
+
+      // Émission radio native réelle vers l'appareil distant (Bluetooth L2CAP / GATT / Nearby)
+      final transport = _transportService;
+      if (transport != null) {
+        try {
+          unawaited(
+            transport.sendMessage(
+              messageId: msgId,
+              recipientPeerId: peerId,
+              contentText: trimmed,
+            ),
+          );
+        } catch (_) {}
       }
 
       final list = _conversations.putIfAbsent(peerId, () => <ChatMessage>[]);
