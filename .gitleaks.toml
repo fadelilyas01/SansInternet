@@ -1,0 +1,12 @@
+title = "SansInternet Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Autorisations d'empreintes de test et identifiants publics simulés"
+paths = [
+  '''test/.*''',
+  '''pubspec\.lock''',
+  '''rust_core/Cargo\.lock'''
+]

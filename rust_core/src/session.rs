@@ -30,6 +30,7 @@ pub enum SessionError {
 }
 
 enum SessionPhase {
+    Transitioning,
     Handshaking {
         state: Box<HandshakeState>,
         is_initiator: bool,
@@ -122,24 +123,8 @@ impl PeerCryptoSession {
         identity: &LocalNodeIdentity,
         incoming: &WireFrame,
     ) -> Result<Option<WireFrame>, SessionError> {
-        // Extraction temporaire de l'état pour permettre la transition propre vers Established
-        let current_phase = std::mem::replace(
-            &mut self.phase,
-            SessionPhase::Handshaking {
-                state: Box::new(
-                    Builder::new(
-                        NOISE_PATTERN
-                            .parse()
-                            .map_err(|_| SessionError::NoiseProtocolFailure)?,
-                    )
-                    .build_responder()
-                    .map_err(|_| SessionError::NoiseProtocolFailure)?,
-                ),
-                is_initiator: false,
-                step: 255,
-                remote_bundle: None,
-            },
-        );
+        // Extraction atomique de l'état pour permettre la transition propre vers Established
+        let current_phase = std::mem::replace(&mut self.phase, SessionPhase::Transitioning);
 
         let SessionPhase::Handshaking {
             mut state,
@@ -280,6 +265,7 @@ impl PeerCryptoSession {
         match &self.phase {
             SessionPhase::Established { remote_bundle, .. } => Some(remote_bundle),
             SessionPhase::Handshaking { remote_bundle, .. } => remote_bundle.as_ref(),
+            SessionPhase::Transitioning => None,
         }
     }
 
