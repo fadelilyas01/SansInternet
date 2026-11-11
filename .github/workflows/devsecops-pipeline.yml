@@ -125,11 +125,11 @@ jobs:
       - name: Exécuter les tests cryptographiques (Noise XX + Dalek)
         run: cargo test --manifest-path rust_core/Cargo.toml --verbose
 
+      - name: Installer cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
       - name: Audit des CVEs sur les crates Cargo (Cargo-Audit)
-        uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          manifest-path: rust_core/Cargo.toml
+        run: cargo audit --file rust_core/Cargo.lock
 
   # =========================================================================
   # 5. VÉRIFICATION DE COMPILATION DU BUNDLE ANDROID
