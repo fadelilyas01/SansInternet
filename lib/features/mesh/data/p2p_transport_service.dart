@@ -90,6 +90,7 @@ final class P2PTransportService {
       _peerDisconnectedController.stream;
   Stream<String> get onPeerAuthenticated =>
       _peerAuthenticatedController.stream;
+  String get localPeerId => _localPeerId;
 
   P2PTransportService({
     Database? db,

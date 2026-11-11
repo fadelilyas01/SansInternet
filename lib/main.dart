@@ -20,9 +20,10 @@ void main() async {
     // Mode Fail-Safe si environnement sans SQLite natif
   }
 
-  // Génération de l'identifiant local cryptographique (CSPRNG 256 bits)
+  // Génération de l'identifiant local cryptographique (CSPRNG 128 bits / 32 hex chars)
+  // Conforme aux limites Google Nearby Connections (max 32 octets) et BLE
   final csprng = Random.secure();
-  final idBytes = List<int>.generate(32, (_) => csprng.nextInt(256));
+  final idBytes = List<int>.generate(16, (_) => csprng.nextInt(256));
   final localPeerId =
       idBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
@@ -36,7 +37,11 @@ void main() async {
     localPeerId: localPeerId,
   );
 
-  final controller = MeshController(transportService: transportService);
+  // Le contrôleur et le transport partagent la MÊME identité de nœud cryptographique
+  final controller = MeshController(
+    transportService: transportService,
+    localPeerId: localPeerId,
+  );
   runApp(SansInternetApp(controller: controller));
 }
 

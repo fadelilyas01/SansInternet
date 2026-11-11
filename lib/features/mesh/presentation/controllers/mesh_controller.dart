@@ -90,8 +90,9 @@ final class MeshController extends ChangeNotifier {
     MultiHopRelayService? relayService,
     LoRaRadioBridgeService? loraService,
     P2PTransportService? transportService,
+    String? localPeerId,
   }) : _transportService = transportService {
-    _initLocalNodeIdentity();
+    _initLocalNodeIdentity(localPeerId ?? transportService?.localPeerId);
     _relayService = relayService ?? MultiHopRelayService(localPeerId: _localPeerId);
     _loraService = loraService ?? LoRaRadioBridgeService();
     _setupRelayListeners();
@@ -241,13 +242,19 @@ final class MeshController extends ChangeNotifier {
     });
   }
 
-  void _initLocalNodeIdentity() {
+  void _initLocalNodeIdentity([String? forcedPeerId]) {
     final csprng = Random.secure();
-    final bytes = List<int>.generate(32, (_) => csprng.nextInt(256));
-    _localPeerId = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    if (forcedPeerId != null && forcedPeerId.isNotEmpty) {
+      _localPeerId = forcedPeerId;
+    } else {
+      final bytes = List<int>.generate(16, (_) => csprng.nextInt(256));
+      _localPeerId = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    }
+    final prefix = _localPeerId.length >= 8 ? _localPeerId.substring(0, 8) : _localPeerId.padRight(8, '0');
+    final suffix = _localPeerId.length >= 4 ? _localPeerId.substring(_localPeerId.length - 4) : '0000';
     _localShortFingerprint =
-        '${_localPeerId.substring(0, 4).toUpperCase()}-${_localPeerId.substring(4, 8).toUpperCase()}-${_localPeerId.substring(56, 60).toUpperCase()}';
-    final secretBytes = List<int>.generate(32, (_) => csprng.nextInt(256));
+        '${prefix.substring(0, 4).toUpperCase()}-${prefix.substring(4, 8).toUpperCase()}-${suffix.toUpperCase()}';
+    final secretBytes = List<int>.generate(16, (_) => csprng.nextInt(256));
     _qrSecretSeed = secretBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
@@ -333,8 +340,8 @@ final class MeshController extends ChangeNotifier {
           final currentRealEpoch =
               DateTime.now().millisecondsSinceEpoch ~/ epochWindowMs;
           final epochDiff = (currentRealEpoch - scannedEpoch).abs();
-          // Rejette le QR code s'il est périmé depuis plus d'une fenêtre temporelle (15-30 min)
-          if (epochDiff > 1) {
+          // Tolérance maximale de 24 heures (96 fenêtres de 15 min) pour supporter les décalages d'horloge hors-ligne
+          if (epochDiff > 96) {
             return null;
           }
         }

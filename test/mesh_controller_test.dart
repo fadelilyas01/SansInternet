@@ -168,9 +168,9 @@ void main() {
     expect(bobContactIndex, isNot(equals(-1)));
     expect(bob.peers[bobContactIndex].verificationStatus, equals(PeerVerificationStatus.qrVerified));
 
-    // 5. Un tiers tente de scanner un QR code expiré de 3 époques (ex: 45 minutes) : Rejet strict anti-rejeu
+    // 5. Un tiers tente de scanner un QR code expiré de plus de 24h (100 époques) : Rejet strict anti-rejeu
     final expiredQr =
-        'sansinternet://pair?id=malicious_node_999&name=Attaque&fp=DEAD-BEEF&epoch=${alice.currentQrEpoch - 3}&tk=12345678';
+        'sansinternet://pair?id=malicious_node_999&name=Attaque&fp=DEAD-BEEF&epoch=${alice.currentQrEpoch - 100}&tk=12345678';
     final resultExpired = bob.pairPeerFromQrData(expiredQr);
     expect(resultExpired, isNull); // Rejeté car périmé !
   });

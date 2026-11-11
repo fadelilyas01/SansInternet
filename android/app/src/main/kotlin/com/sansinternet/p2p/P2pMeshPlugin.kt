@@ -160,12 +160,16 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
             .setStrategy(Strategy.P2P_CLUSTER)
             .build()
 
+        val safeEndpointName = if (localPeerId.length > 32) localPeerId.substring(0, 32) else localPeerId
+
         connectionsClient.startAdvertising(
-            localPeerId,
+            safeEndpointName,
             serviceId,
             nearbyLifecycleCallback,
             advertisingOptions
-        )
+        ).addOnFailureListener {
+            // Tolérance si permissions ou Bluetooth en cours de démarrage
+        }
 
         val discoveryOptions = DiscoveryOptions.Builder()
             .setStrategy(Strategy.P2P_CLUSTER)
@@ -175,7 +179,9 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
             serviceId,
             nearbyDiscoveryCallback,
             discoveryOptions
-        )
+        ).addOnFailureListener {
+            // Tolérance si permissions ou Bluetooth en cours de démarrage
+        }
     }
 
     @SuppressLint("MissingPermission")
