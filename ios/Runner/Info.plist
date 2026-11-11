@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>fr</string>
+	<key>CFBundleDisplayName</key>
+	<string>SansInternet</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>sans_internet</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+
+	<!-- Compatibilité iOS 12 (NSBluetoothPeripheralUsageDescription) + iOS 13 à iOS 18+ (NSBluetoothAlwaysUsageDescription) -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>SansInternet utilise le Bluetooth Low Energy pour découvrir vos correspondants à proximité et échanger des messages chiffrés de bout en bout sans connexion Internet.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>SansInternet utilise le Bluetooth pour relayer vos messages chiffrés hors-ligne aux appareils à proximité.</string>
+
+	<!-- Compatibilité iOS 14 à iOS 18+ pour Apple MultipeerConnectivity / Bonjour AWDL -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>SansInternet utilise le réseau pair-à-pair local pour établir un tunnel chiffré direct avec les appareils voisins sans serveur ni Internet.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_sansnet-mesh._tcp</string>
+		<string>_sansnet-mesh._udp</string>
+	</array>
+
+	<!-- Découverte et relayage Multi-Hop en arrière-plan (écran verrouillé) -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+		<string>bluetooth-peripheral</string>
+	</array>
+</dict>
+</plist>

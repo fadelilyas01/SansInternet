@@ -1,0 +1,22 @@
+[package]
+name = "sansinternet_core"
+version = "0.1.0"
+edition = "2021"
+description = "Noyau cryptographique E2EE (Noise_XX_25519_ChaChaPoly_BLAKE2s + Ed25519 + Framing P2P) pour messagerie hors-ligne"
+license = "Proprietary"
+
+[lib]
+name = "sansinternet_core"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+snow = { version = "0.9.6", default-features = false, features = ["default-resolver"] }
+ed25519-dalek = { version = "2.1.1", default-features = false, features = ["std", "rand_core", "zeroize"] }
+blake2 = { version = "0.10.6", default-features = false, features = ["std"] }
+rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng", "getrandom"] }
+subtle = { version = "2.6.1", default-features = false, features = ["std"] }
+zeroize = { version = "1.8.1", features = ["derive"] }
+thiserror = "1.0.65"
+serde = { version = "1.0.214", features = ["derive"] }
+serde_json = "1.0.132"
+hex = "0.4.3"
