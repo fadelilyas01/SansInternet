@@ -322,7 +322,10 @@ final class MeshController extends ChangeNotifier {
   MeshPeer? pairPeerFromQrData(String raw) {
     try {
       final uri = Uri.parse(raw.trim());
-      if (uri.scheme != 'sansinternet' || uri.host != 'pair') return null;
+      if (uri.scheme.toLowerCase() != 'sansinternet' ||
+          uri.host.toLowerCase() != 'pair') {
+        return null;
+      }
 
       final rawPeerId = uri.queryParameters['id']?.trim();
       final rawName = uri.queryParameters['name']?.trim();
@@ -340,8 +343,8 @@ final class MeshController extends ChangeNotifier {
           final currentRealEpoch =
               DateTime.now().millisecondsSinceEpoch ~/ epochWindowMs;
           final epochDiff = (currentRealEpoch - scannedEpoch).abs();
-          // Tolérance maximale de 24 heures (96 fenêtres de 15 min) pour supporter les décalages d'horloge hors-ligne
-          if (epochDiff > 96) {
+          // Tolérance maximale de 7 jours (672 fenêtres de 15 min) pour supporter les décalages d'horloge hors-ligne
+          if (epochDiff > 672) {
             return null;
           }
         }

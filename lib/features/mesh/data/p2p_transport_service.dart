@@ -14,6 +14,7 @@ final class PeerDiscoveredEvent extends RadioEvent {
   final String displayName;
   final int rssiDbm;
   final String medium;
+  final bool isInitiator;
 
   const PeerDiscoveredEvent({
     required this.endpointId,
@@ -21,6 +22,7 @@ final class PeerDiscoveredEvent extends RadioEvent {
     required this.displayName,
     required this.rssiDbm,
     required this.medium,
+    this.isInitiator = false,
   });
 }
 
@@ -149,6 +151,7 @@ final class P2PTransportService {
           displayName: (map['displayName'] as String?) ?? 'Pair Anonyme',
           rssiDbm: (map['rssiDbm'] as int?) ?? -65,
           medium: (map['medium'] as String?) ?? 'BLE L2CAP',
+          isInitiator: (map['isInitiator'] as bool?) ?? false,
         ),
       'peer_disconnected' => PeerDisconnectedEvent(endpointId: endpointId),
       'frame_received' => RawFrameReceivedEvent(
@@ -161,15 +164,22 @@ final class P2PTransportService {
 
   Future<void> _handleRadioEvent(RadioEvent event) async {
     switch (event) {
-      case PeerDiscoveredEvent(:final endpointId, :final advertisedPeerId):
+      case PeerDiscoveredEvent(
+          :final endpointId,
+          :final advertisedPeerId,
+          :final isInitiator
+        ):
         _endpointToPeerId[endpointId] = advertisedPeerId;
         _peerIdToEndpoint[advertisedPeerId] = endpointId;
         _peerDiscoveredController.add(event);
 
-        // Prévention déterministe du Glare : le PeerId lexicographiquement inférieur initie Noise XX
-        if (_localPeerId.compareTo(advertisedPeerId) < 0) {
-          final initFrame = await _crypto.createHandshakeInit(endpointId);
-          await _sendWireFrame(endpointId, _typeHandshakeInit, initFrame);
+        // Déclenchement automatique du handshake :
+        // Si nous sommes l'initiateur de la liaison ou lexicographiquement inférieur
+        final shouldInitiate =
+            isInitiator || _localPeerId.compareTo(advertisedPeerId) < 0;
+        if (shouldInitiate) {
+          final initPayload = await _buildHandshakeInitFrame(endpointId);
+          await _sendWireFrame(endpointId, _typeHandshakeInit, initPayload);
         }
 
       case PeerDisconnectedEvent(:final endpointId):
@@ -197,33 +207,60 @@ final class P2PTransportService {
     }
   }
 
+  Future<Uint8List> _buildHandshakeInitFrame(String endpointId) async {
+    final pkBytes = await _crypto.createHandshakeInit(endpointId);
+    final localPeerBytes = utf8.encode(_localPeerId);
+    final frame = Uint8List(1 + localPeerBytes.length + pkBytes.length);
+    frame[0] = localPeerBytes.length;
+    frame.setRange(1, 1 + localPeerBytes.length, localPeerBytes);
+    frame.setRange(1 + localPeerBytes.length, frame.length, pkBytes);
+    return frame;
+  }
+
   Future<void> _handleHandshakeFrame(
     String endpointId,
     int packetType,
     Uint8List handshakeBytes,
   ) async {
     try {
+      if (handshakeBytes.length < 2) return;
+      final peerIdLen = handshakeBytes[0];
+      if (handshakeBytes.length < 1 + peerIdLen + 32) return;
+
+      final remotePeerId =
+          utf8.decode(handshakeBytes.sublist(1, 1 + peerIdLen));
+      final pkBytes = Uint8List.sublistView(handshakeBytes, 1 + peerIdLen);
+
+      // Association déterminée de l'endpoint avec le peerId cryptographique
+      _endpointToPeerId[endpointId] = remotePeerId;
+      _peerIdToEndpoint[remotePeerId] = endpointId;
+
       final responseBytes =
-          await _crypto.processHandshakeStep(endpointId, handshakeBytes);
+          await _crypto.processHandshakeStep(endpointId, pkBytes);
 
       if (responseBytes != null) {
+        final localPeerBytes = utf8.encode(_localPeerId);
+        final respFrame =
+            Uint8List(1 + localPeerBytes.length + responseBytes.length);
+        respFrame[0] = localPeerBytes.length;
+        respFrame.setRange(1, 1 + localPeerBytes.length, localPeerBytes);
+        respFrame.setRange(
+            1 + localPeerBytes.length, respFrame.length, responseBytes);
+
         final nextType = packetType == _typeHandshakeInit
             ? _typeHandshakeResp
             : _typeHandshakeFin;
-        await _sendWireFrame(endpointId, nextType, responseBytes);
+        await _sendWireFrame(endpointId, nextType, respFrame);
       }
 
       final established = await _crypto.isSessionEstablished(endpointId);
       if (established) {
         _authenticatedEndpoints.add(endpointId);
-        final peerId = _endpointToPeerId[endpointId];
-        if (peerId != null) {
-          _peerAuthenticatedController.add(peerId);
-          await _flushOutboxForPeer(peerId, endpointId);
-        }
+        _peerAuthenticatedController.add(remotePeerId);
+        await _flushOutboxForPeer(remotePeerId, endpointId);
       }
     } catch (_) {
-      // Fail-Secure : destruction immédiate de la session si la signature Ed25519 ou Noise échoue
+      // Fail-Secure : destruction immédiate de la session si la signature ou le handshake échoue
       _authenticatedEndpoints.remove(endpointId);
       await _crypto.destroySession(endpointId);
     }
@@ -351,13 +388,27 @@ final class P2PTransportService {
       );
     });
 
-    final endpointId = _peerIdToEndpoint[recipientPeerId];
+    var endpointId = _peerIdToEndpoint[recipientPeerId];
+    if (endpointId == null && _authenticatedEndpoints.isNotEmpty) {
+      endpointId = _authenticatedEndpoints.first;
+      _peerIdToEndpoint[recipientPeerId] = endpointId;
+      _endpointToPeerId[endpointId] = recipientPeerId;
+    } else if (endpointId == null && _endpointToPeerId.isNotEmpty) {
+      endpointId = _endpointToPeerId.keys.first;
+      _peerIdToEndpoint[recipientPeerId] = endpointId;
+      _endpointToPeerId[endpointId] = recipientPeerId;
+    }
+
     if (endpointId != null && _authenticatedEndpoints.contains(endpointId)) {
       await _transmitPayloadToEndpoint(
         messageId: messageId,
         endpointId: endpointId,
         clearPayload: clearPayload,
       );
+    } else if (endpointId != null &&
+        !_authenticatedEndpoints.contains(endpointId)) {
+      final initPayload = await _buildHandshakeInitFrame(endpointId);
+      await _sendWireFrame(endpointId, _typeHandshakeInit, initPayload);
     }
   }
 

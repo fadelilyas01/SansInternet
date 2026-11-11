@@ -243,10 +243,10 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
                 characteristic: BluetoothGattCharacteristic
             ) {
                 if (characteristic.uuid == psmCharacteristicUuid) {
-                    val psmBuffer = ByteBuffer.allocate(18)
+                    val peerBytes = localPeerId.toByteArray(Charsets.UTF_8)
+                    val psmBuffer = ByteBuffer.allocate(2 + peerBytes.size)
                     psmBuffer.putShort(dynamicPsm.toShort())
-                    val paddedPeer = localPeerId.padEnd(16, '0').take(16).toByteArray(Charsets.UTF_8)
-                    psmBuffer.put(paddedPeer)
+                    psmBuffer.put(peerBytes)
                     val fullValue = psmBuffer.array()
                     val slice = if (offset < fullValue.size) fullValue.copyOfRange(offset, fullValue.size) else ByteArray(0)
                     gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, slice)
@@ -266,6 +266,7 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
             ) {
                 val endpointId = "gatt:${device.address}"
                 subscribedGattDevices[endpointId] = device
+                descriptor.value = value
                 if (responseNeeded) {
                     gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
                 }
@@ -274,9 +275,10 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
                         "event" to "peer_discovered",
                         "endpointId" to endpointId,
                         "peerId" to device.address,
-                        "displayName" to "Pair BLE GATT (${device.address.takeLast(5)})",
+                        "displayName" to "Pair BLE (${device.address.takeLast(5)})",
                         "rssiDbm" to -62,
-                        "medium" to "BLE GATT Universel (API 21+)"
+                        "medium" to "BLE GATT Universel (API 21+)",
+                        "isInitiator" to false
                     )
                 )
             }
@@ -370,14 +372,18 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
     private fun startBleAdvertisingWithPsm(adapter: BluetoothAdapter, psm: Int) {
         val advertiser = adapter.bluetoothLeAdvertiser ?: return
 
-        val serviceDataBuffer = ByteBuffer.allocate(18)
+        val peerBytes = localPeerId.toByteArray(Charsets.UTF_8)
+        val serviceDataBuffer = ByteBuffer.allocate(2 + peerBytes.size)
         serviceDataBuffer.putShort(psm.toShort())
-        val peerPrefixBytes = localPeerId.padEnd(16, '0').take(16).toByteArray(Charsets.UTF_8)
-        serviceDataBuffer.put(peerPrefixBytes)
+        serviceDataBuffer.put(peerBytes)
 
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(serviceUuid))
+            .build()
+
+        val scanResponse = AdvertiseData.Builder()
+            .setIncludeDeviceName(false)
             .addServiceData(ParcelUuid(serviceUuid), serviceDataBuffer.array())
             .build()
 
@@ -393,7 +399,7 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
                 .setPrimaryPhy(BluetoothDevice.PHY_LE_1M)
                 .setSecondaryPhy(BluetoothDevice.PHY_LE_CODED)
                 .build()
-            advertiser.startAdvertisingSet(params, data, null, null, null, bleExtendedAdvertiseCallback)
+            advertiser.startAdvertisingSet(params, data, scanResponse, null, null, bleExtendedAdvertiseCallback)
             return
         }
 
@@ -403,7 +409,7 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
             .setConnectable(true)
             .build()
 
-        advertiser.startAdvertising(settings, data, bleAdvertiseCallback)
+        advertiser.startAdvertising(settings, data, scanResponse, bleAdvertiseCallback)
     }
 
     @SuppressLint("MissingPermission")
@@ -717,7 +723,10 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
             val device: BluetoothDevice = result.device
             val l2capEndpointId = "ble:${device.address}"
             val gattEndpointId = "gatt:${device.address}"
-            if (activeL2capSockets.containsKey(l2capEndpointId) || activeGattClients.containsKey(gattEndpointId)) {
+            if (activeL2capSockets.containsKey(l2capEndpointId) ||
+                activeGattClients.containsKey(gattEndpointId) ||
+                subscribedGattDevices.containsKey(gattEndpointId)
+            ) {
                 return
             }
 
@@ -725,14 +734,14 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
             val serviceData = scanRecord?.getServiceData(ParcelUuid(serviceUuid))
 
             // Cas 1 : Android 10+ -> Android 10+ avec PSM annoncé directement dans ServiceData
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && serviceData != null && serviceData.size >= 18) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && serviceData != null && serviceData.size >= 2) {
                 val buf = ByteBuffer.wrap(serviceData)
                 val psm = buf.short.toInt() and 0xFFFF
-                val peerBytes = ByteArray(16)
+                val peerBytes = ByteArray(buf.remaining())
                 buf.get(peerBytes)
-                val advertisedPeerPrefix = String(peerBytes, Charsets.UTF_8)
+                val advertisedPeerId = if (peerBytes.isNotEmpty()) String(peerBytes, Charsets.UTF_8) else device.address
                 if (psm > 0) {
-                    connectL2capSocket(device, l2capEndpointId, psm, advertisedPeerPrefix, result.rssi)
+                    connectL2capSocket(device, l2capEndpointId, psm, advertisedPeerId, result.rssi)
                     return
                 }
             }
@@ -830,21 +839,21 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
         val gattEndpointId = "gatt:${device.address}"
         pendingGattConnections.remove(gattEndpointId)
 
-        if (status != BluetoothGatt.GATT_SUCCESS || value == null || value.size < 18) {
+        if (status != BluetoothGatt.GATT_SUCCESS || value == null || value.size < 2) {
             gatt.disconnect()
             return
         }
 
         val buf = ByteBuffer.wrap(value)
         val psm = buf.short.toInt() and 0xFFFF
-        val peerBytes = ByteArray(16)
+        val peerBytes = ByteArray(buf.remaining())
         buf.get(peerBytes)
-        val advertisedPeerPrefix = String(peerBytes, Charsets.UTF_8)
+        val advertisedPeerId = if (peerBytes.isNotEmpty()) String(peerBytes, Charsets.UTF_8) else device.address
 
         // Si Android >= 10 (API 29) ET que le pair distant expose un PSM L2CAP > 0, on bascule sur L2CAP haute vitesse
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && psm > 0) {
             gatt.disconnect()
-            connectL2capSocket(device, l2capEndpointId, psm, advertisedPeerPrefix, rssi)
+            connectL2capSocket(device, l2capEndpointId, psm, advertisedPeerId, rssi)
             return
         }
 
@@ -871,10 +880,11 @@ class P2pMeshPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
             mapOf(
                 "event" to "peer_discovered",
                 "endpointId" to gattEndpointId,
-                "peerId" to advertisedPeerPrefix,
-                "displayName" to "Pair BLE ($advertisedPeerPrefix)",
+                "peerId" to advertisedPeerId,
+                "displayName" to "Pair BLE ($advertisedPeerId)",
                 "rssiDbm" to rssi,
-                "medium" to "BLE GATT Universel (API 21+)"
+                "medium" to "BLE GATT Universel (API 21+)",
+                "isInitiator" to true
             )
         )
     }

@@ -74,9 +74,15 @@ class _MeshRadarPageState extends State<MeshRadarPage> {
                             ),
                           );
                         } else {
+                          final isOwnCode =
+                              raw.contains('id=${widget.controller.localPeerId}');
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Code QR déjà utilisé ou invalide.'),
+                            SnackBar(
+                              content: Text(
+                                isOwnCode
+                                    ? 'Vous ne pouvez pas scanner votre propre code QR.'
+                                    : 'Code QR expiré ou non reconnu.',
+                              ),
                             ),
                           );
                         }
