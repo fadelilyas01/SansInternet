@@ -159,3 +159,4 @@ jobs:
 
       - name: Compiler l'APK Android (Debug Mode)
         run: flutter build apk --debug
+

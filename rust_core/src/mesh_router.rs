@@ -286,7 +286,11 @@ impl MultiHopMeshRouter {
         }
 
         // 2. Comparaison en temps constant du tag de destination avec notre tag local
-        let is_for_us = env.destination_tag.ct_eq(&self.local_routing_tag).unwrap_u8() == 1;
+        let is_for_us = env
+            .destination_tag
+            .ct_eq(&self.local_routing_tag)
+            .unwrap_u8()
+            == 1;
         let is_broadcast = env.destination_tag.ct_eq(&[0xFF; 8]).unwrap_u8() == 1;
 
         if is_for_us {

@@ -10,3 +10,4 @@ paths = [
   '''pubspec\.lock''',
   '''rust_core/Cargo\.lock'''
 ]
+

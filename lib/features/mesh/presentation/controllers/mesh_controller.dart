@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:sans_internet/features/mesh/domain/entities/chat_message.dart';
@@ -337,7 +338,7 @@ final class MeshController extends ChangeNotifier {
 
       // Si le boîtier LoRa longue portée est connecté, diffusion par ondes Sub-GHz
       if (_loraService.isConnected) {
-        _loraService.transmitMeshPacket(packet);
+        unawaited(_loraService.transmitMeshPacket(packet));
       }
 
       final list = _conversations.putIfAbsent(peerId, () => <ChatMessage>[]);

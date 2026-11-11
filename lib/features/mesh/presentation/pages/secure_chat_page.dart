@@ -917,10 +917,10 @@ class _ThumbZoneComposer extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           if (!isPeerOnline) ...<Widget>[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6, left: 4),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 6, left: 4),
               child: Row(
-                children: const <Widget>[
+                children: <Widget>[
                   Icon(
                     Icons.schedule_send,
                     size: 13,

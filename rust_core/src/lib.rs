@@ -122,9 +122,14 @@ mod tests {
         assert!(bob_registry.is_session_ready(endpoint_bob_to_alice));
 
         // Transport E2EE : Alice envoie un message chiffré à Bob
-        let secret_payload = br#"{"v":1,"id":"msg-001","body":"Canal P2P hors-ligne operationnel"}"#;
+        let secret_payload =
+            br#"{"v":1,"id":"msg-001","body":"Canal P2P hors-ligne operationnel"}"#;
         let wire_packet = alice_registry
-            .seal_for_endpoint(endpoint_alice_to_bob, PacketType::DataMessage, secret_payload)
+            .seal_for_endpoint(
+                endpoint_alice_to_bob,
+                PacketType::DataMessage,
+                secret_payload,
+            )
             .expect("Alice chiffre le message");
 
         let (pkt_type, decrypted) = bob_registry
@@ -163,13 +168,9 @@ mod tests {
 
         // 1. Alice scelle un paquet E2EE 0-RTT pour Bob avec Noise_N + Signature Ed25519
         let msg_clear = b"Alerte longue portee via 2 relais intermediaires (Hop=2)";
-        let sealed_for_bob = seal_multihop_0rtt(
-            &alice,
-            bob.noise_public_key(),
-            1_762_795_000_000,
-            msg_clear,
-        )
-        .expect("Scellement 0-RTT Noise_N");
+        let sealed_for_bob =
+            seal_multihop_0rtt(&alice, bob.noise_public_key(), 1_762_795_000_000, msg_clear)
+                .expect("Scellement 0-RTT Noise_N");
 
         let initial_envelope = MeshRelayEnvelope {
             packet_id: 0xDEAD_BEEF_CAFE_0001,
@@ -213,8 +214,7 @@ mod tests {
         // 4. Saut 3 : Bob reçoit la trame de Relais 2, reconnaît son tag et déchiffre le message d'Alice
         let wire_hop2 = forwarded_by_r2.encode().expect("Encodage Hop 2");
         let env_at_bob = MeshRelayEnvelope::decode(&wire_hop2).expect("Décodage Bob");
-        let RouteDecision::DeliverLocally(delivered_env) =
-            router_bob.evaluate_incoming(env_at_bob)
+        let RouteDecision::DeliverLocally(delivered_env) = router_bob.evaluate_incoming(env_at_bob)
         else {
             panic!("Bob devait consommer le paquet localement");
         };

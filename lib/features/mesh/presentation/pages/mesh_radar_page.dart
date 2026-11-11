@@ -175,7 +175,7 @@ class _MeshRadarPageState extends State<MeshRadarPage> {
                 Center(
                   child: Container(
                     padding: const EdgeInsets.all(MeshDesignTokens.spaceGutter),
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: Colors.white,
                       borderRadius: MeshDesignTokens.radiusCard,
                     ),
@@ -448,9 +448,11 @@ class _MeshRadarPageState extends State<MeshRadarPage> {
                     for (final preset in LoRaModulationPreset.values)
                       RadioListTile<LoRaModulationPreset>(
                         value: preset,
+                        // ignore: deprecated_member_use
                         groupValue: node.modulationPreset,
                         title: Text(preset.label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                         subtitle: Text(preset.description, style: const TextStyle(fontSize: 12)),
+                        // ignore: deprecated_member_use
                         onChanged: (val) {
                           if (val != null) lora.setModulationPreset(val);
                         },
@@ -1042,9 +1044,9 @@ class _NominalPeerListView extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        Row(
+                        const Row(
                           children: <Widget>[
-                            const Flexible(
+                            Flexible(
                               child: Text(
                                 'Réseau Maillé Longue Portée',
                                 maxLines: 1,
@@ -1055,8 +1057,8 @@ class _NominalPeerListView extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            const Icon(Icons.info_outline, size: 14, color: MeshDesignTokens.textSignalGray),
+                            SizedBox(width: 6),
+                            Icon(Icons.info_outline, size: 14, color: MeshDesignTokens.textSignalGray),
                           ],
                         ),
                         const SizedBox(height: 2),
@@ -1080,9 +1082,9 @@ class _NominalPeerListView extends StatelessWidget {
           const SizedBox(height: MeshDesignTokens.spaceMedium),
           Card(
             color: MeshDesignTokens.statusNodeGreen.withValues(alpha: 0.12),
-            shape: RoundedRectangleBorder(
+            shape: const RoundedRectangleBorder(
               borderRadius: MeshDesignTokens.radiusCard,
-              side: const BorderSide(color: MeshDesignTokens.statusNodeGreen),
+              side: BorderSide(color: MeshDesignTokens.statusNodeGreen),
             ),
             child: InkWell(
               borderRadius: MeshDesignTokens.radiusCard,

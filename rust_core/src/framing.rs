@@ -83,8 +83,8 @@ impl WireFrame {
         if self.payload.len() > MAX_PAYLOAD_SIZE || self.fragment_total == 0 {
             return Err(FramingError::InvalidPayloadLength);
         }
-        let payload_len = u16::try_from(self.payload.len())
-            .map_err(|_| FramingError::InvalidPayloadLength)?;
+        let payload_len =
+            u16::try_from(self.payload.len()).map_err(|_| FramingError::InvalidPayloadLength)?;
 
         let mut buf = Vec::with_capacity(HEADER_SIZE + self.payload.len());
         buf.extend_from_slice(&WIRE_MAGIC.to_be_bytes());

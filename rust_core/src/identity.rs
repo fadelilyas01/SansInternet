@@ -168,7 +168,8 @@ pub fn verify_public_bundle(
     }
 
     // 2. Vérification en temps constant du PeerId dérivé
-    let expected_peer_id = compute_peer_id_hex(&bundle.ed25519_public, &bundle.x25519_static_public);
+    let expected_peer_id =
+        compute_peer_id_hex(&bundle.ed25519_public, &bundle.x25519_static_public);
     if expected_peer_id
         .as_bytes()
         .ct_eq(bundle.peer_id_hex.as_bytes())

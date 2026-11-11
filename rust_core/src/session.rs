@@ -141,7 +141,10 @@ impl PeerCryptoSession {
             let mut read_buf = vec![0u8; MAX_PAYLOAD_SIZE];
             state
                 .read_message(&incoming.payload, &mut read_buf)
-                .map_err(|_| SessionError::NoiseProtocolFailure)?;
+                .map_err(|e| {
+                    eprintln!("Noise read_message step 0 error: {:?}", e);
+                    SessionError::NoiseProtocolFailure
+                })?;
 
             let local_bundle_bytes = serde_json::to_vec(&identity.export_public_bundle())
                 .map_err(|_| SessionError::NoiseProtocolFailure)?;
